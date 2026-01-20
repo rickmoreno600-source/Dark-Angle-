@@ -1,0 +1,286 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bowser Racer</title>
+
+<style>
+:root {
+  --bg:#0b0b0b;
+  --accent:#ffcc00;
+}
+*{box-sizing:border-box}
+html,body{
+  margin:0;
+  background:linear-gradient(#0b0b0b,#151515);
+  font-family:system-ui,Segoe UI,Arial;
+}
+.container{
+  min-height:100vh;
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  padding:20px;
+  position:relative;
+}
+canvas{
+  background:#333;
+  border-radius:12px;
+  box-shadow:0 10px 30px rgba(0,0,0,.6);
+}
+.controls{
+  margin-top:12px;
+  display:flex;
+  gap:8px;
+}
+.controls button{
+  background:#222;
+  color:#fff;
+  border:0;
+  padding:10px 14px;
+  border-radius:8px;
+  font-size:18px;
+}
+.hud{
+  position:absolute;
+  top:12px;
+  left:18px;
+  color:#fff;
+  font-weight:600;
+}
+.hud .small{
+  display:block;
+  font-size:12px;
+  opacity:.8;
+}
+.overlay{
+  position:absolute;
+  inset:0;
+  display:none;
+  align-items:center;
+  justify-content:center;
+}
+.card{
+  background:rgba(0,0,0,.8);
+  padding:20px;
+  border-radius:10px;
+  color:white;
+  text-align:center;
+}
+</style>
+</head>
+
+<body>
+<div class="container">
+
+<canvas id="game" width="400" height="650"></canvas>
+
+<div class="controls">
+  <button id="left">◀</button>
+  <button id="right">▶</button>
+  <button id="pause">⏸</button>
+  <button id="sound">🔊</button>
+</div>
+
+<div class="hud" id="hud">Score: 0<span class="small">Best: 0</span></div>
+
+<div class="overlay" id="overlay">
+  <div class="card">
+    <h2 id="title">Bowser Racer</h2>
+    <p id="text">Tap or press Space to start</p>
+    <button id="start">Start</button>
+  </div>
+</div>
+
+</div>
+
+<script>
+(() => {
+
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+const hud = document.getElementById("hud");
+const overlay = document.getElementById("overlay");
+const title = document.getElementById("title");
+const text = document.getElementById("text");
+
+const LANE_COUNT = 3;
+const ROAD_PAD = 40;
+const HIGH_KEY = "bowser_best";
+
+let state = "start";
+let score = 0;
+let speed = 180;
+let lane = 1;
+let obstacles = [];
+let last = 0;
+let soundOn = true;
+
+/* simple sound */
+const audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+function beep(freq=440,dur=0.08){
+  if(!soundOn) return;
+  const o=audioCtx.createOscillator();
+  const g=audioCtx.createGain();
+  o.frequency.value=freq;
+  o.connect(g); g.connect(audioCtx.destination);
+  g.gain.value=0.1;
+  o.start();
+  o.stop(audioCtx.currentTime+dur);
+}
+
+const car = { w:40,h:70, y:canvas.height-110, x:0 };
+
+function laneX(i,w){
+  const roadW = canvas.width-ROAD_PAD*2;
+  return ROAD_PAD + (roadW/LANE_COUNT)*(i+.5)-w/2;
+}
+
+function roundRect(x,y,w,h,r){
+  ctx.beginPath();
+  ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r);
+  ctx.arcTo(x+w,y+h,x,y+h,r);
+  ctx.arcTo(x,y+h,x,y,r);
+  ctx.arcTo(x,y,x+w,y,r);
+  ctx.closePath();
+}
+
+function start(){
+  score=0;
+  speed=180;
+  obstacles=[];
+  lane=1;
+  car.x=laneX(lane,car.w);
+  state="run";
+  overlay.style.display="none";
+  last=0;
+}
+
+function gameOver(){
+  state="over";
+  overlay.style.display="flex";
+  title.textContent="Game Over";
+  text.innerHTML=`Score: ${score}<br>Press Space or Tap`;
+  const best=Math.max(score,Number(localStorage.getItem(HIGH_KEY)||0));
+  localStorage.setItem(HIGH_KEY,best);
+  beep(120);
+}
+
+function spawn(){
+  const isCoin=Math.random()<.25;
+  const l=Math.floor(Math.random()*LANE_COUNT);
+  obstacles.push(
+    isCoin
+    ? {t:"coin",x:laneX(l,18)+11,y:-20,w:18,h:18}
+    : {t:"car",x:laneX(l,40),y:-80,w:40,h:60}
+  );
+}
+
+function loop(t){
+  requestAnimationFrame(loop);
+  if(!last) last=t;
+  const dt=(t-last)/1000;
+  last=t;
+
+  if(state!=="run") return;
+
+  if(Math.random()<dt*1.2) spawn();
+
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+
+  ctx.fillStyle="#1c1c1c";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  ctx.fillStyle="#2e2e2e";
+  roundRect(ROAD_PAD,0,canvas.width-ROAD_PAD*2,canvas.height,10);
+  ctx.fill();
+
+  car.x+=(laneX(lane,car.w)-car.x)*dt*10;
+
+  ctx.fillStyle="#0f0";
+  roundRect(car.x,car.y,car.w,car.h,8);
+  ctx.fill();
+
+  for(let i=obstacles.length-1;i>=0;i--){
+    const o=obstacles[i];
+    o.y+=speed*dt;
+
+    if(o.t==="coin"){
+      ctx.fillStyle="#ffcc00";
+      ctx.beginPath();
+      ctx.arc(o.x+9,o.y+9,9,0,Math.PI*2);
+      ctx.fill();
+    }else{
+      ctx.fillStyle="#f44";
+      roundRect(o.x,o.y,o.w,o.h,6);
+      ctx.fill();
+    }
+
+    if(o.y>canvas.height){
+      obstacles.splice(i,1);
+      if(o.t==="car") score++;
+    }
+
+    if(
+      o.x<car.x+car.w &&
+      o.x+o.w>car.x &&
+      o.y<car.y+car.h &&
+      o.y+o.h>car.y
+    ){
+      if(o.t==="coin"){
+        score+=10;
+        beep(700);
+        obstacles.splice(i,1);
+      }else{
+        gameOver();
+        return;
+      }
+    }
+  }
+
+  speed=Math.min(420,180+score*2);
+
+  hud.innerHTML=`Score: ${score}<span class="small">Best: ${localStorage.getItem(HIGH_KEY)||0}</span>`;
+}
+
+/* controls */
+document.getElementById("start").onclick=start;
+document.getElementById("left").onclick=()=>lane=Math.max(0,lane-1);
+document.getElementById("right").onclick=()=>lane=Math.min(2,lane+1);
+document.getElementById("pause").onclick=()=>{
+  if(state==="run"){
+    state="pause";
+    overlay.style.display="flex";
+    title.textContent="Paused";
+    text.textContent="Tap pause or Space to resume";
+  }else if(state==="pause"){
+    state="run";
+    overlay.style.display="none";
+  }
+};
+document.getElementById("sound").onclick=()=>soundOn=!soundOn;
+
+canvas.addEventListener("pointerdown",e=>{
+  const x=e.offsetX;
+  lane += x<canvas.width/2?-1:1;
+  lane=Math.max(0,Math.min(2,lane));
+});
+
+window.addEventListener("keydown",e=>{
+  if(e.code==="ArrowLeft") lane=Math.max(0,lane-1);
+  if(e.code==="ArrowRight") lane=Math.min(2,lane+1);
+  if(e.code==="Space"){
+    if(state==="start"||state==="over") start();
+    else if(state==="pause"){ state="run"; overlay.style.display="none"; }
+  }
+});
+
+requestAnimationFrame(loop);
+})();
+</script>
+
+</body>
+</html>
