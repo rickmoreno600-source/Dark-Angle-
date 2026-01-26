@@ -8,7 +8,6 @@
 <style>
 :root {
   --bg:#0b0b0b;
-  --card:#222;
   --accent:#ffcc00;
 }
 *{box-sizing:border-box}
@@ -59,12 +58,12 @@ canvas{
 .overlay{
   position:absolute;
   inset:0;
-  display:flex;
+  display:none;
   align-items:center;
   justify-content:center;
 }
 .card{
-  background:rgba(0,0,0,.75);
+  background:rgba(0,0,0,.8);
   padding:20px;
   border-radius:10px;
   color:white;
@@ -81,7 +80,7 @@ canvas{
 <div class="controls">
   <button id="left">◀</button>
   <button id="right">▶</button>
-  <button id="pause">Pause</button>
+  <button id="pause">⏸</button>
   <button id="sound">🔊</button>
 </div>
 
@@ -119,11 +118,20 @@ let obstacles = [];
 let last = 0;
 let soundOn = true;
 
-const car = {
-  w:40,h:70,
-  y:canvas.height-110,
-  x:0
-};
+/* simple sound */
+const audioCtx = new (window.AudioContext||window.webkitAudioContext)();
+function beep(freq=440,dur=0.08){
+  if(!soundOn) return;
+  const o=audioCtx.createOscillator();
+  const g=audioCtx.createGain();
+  o.frequency.value=freq;
+  o.connect(g); g.connect(audioCtx.destination);
+  g.gain.value=0.1;
+  o.start();
+  o.stop(audioCtx.currentTime+dur);
+}
+
+const car = { w:40,h:70, y:canvas.height-110, x:0 };
 
 function laneX(i,w){
   const roadW = canvas.width-ROAD_PAD*2;
@@ -149,7 +157,6 @@ function start(){
   state="run";
   overlay.style.display="none";
   last=0;
-  requestAnimationFrame(loop);
 }
 
 function gameOver(){
@@ -159,23 +166,26 @@ function gameOver(){
   text.innerHTML=`Score: ${score}<br>Press Space or Tap`;
   const best=Math.max(score,Number(localStorage.getItem(HIGH_KEY)||0));
   localStorage.setItem(HIGH_KEY,best);
+  beep(120);
 }
 
 function spawn(){
   const isCoin=Math.random()<.25;
   const l=Math.floor(Math.random()*LANE_COUNT);
-  if(isCoin){
-    obstacles.push({t:"coin",x:laneX(l,18)+11,y:-20,w:18,h:18});
-  }else{
-    obstacles.push({t:"car",x:laneX(l,40),y:-80,w:40,h:60});
-  }
+  obstacles.push(
+    isCoin
+    ? {t:"coin",x:laneX(l,18)+11,y:-20,w:18,h:18}
+    : {t:"car",x:laneX(l,40),y:-80,w:40,h:60}
+  );
 }
 
 function loop(t){
-  if(state!=="run") return;
+  requestAnimationFrame(loop);
   if(!last) last=t;
   const dt=(t-last)/1000;
   last=t;
+
+  if(state!=="run") return;
 
   if(Math.random()<dt*1.2) spawn();
 
@@ -222,6 +232,7 @@ function loop(t){
     ){
       if(o.t==="coin"){
         score+=10;
+        beep(700);
         obstacles.splice(i,1);
       }else{
         gameOver();
@@ -233,31 +244,43 @@ function loop(t){
   speed=Math.min(420,180+score*2);
 
   hud.innerHTML=`Score: ${score}<span class="small">Best: ${localStorage.getItem(HIGH_KEY)||0}</span>`;
-
-  requestAnimationFrame(loop);
 }
 
 /* controls */
 document.getElementById("start").onclick=start;
 document.getElementById("left").onclick=()=>lane=Math.max(0,lane-1);
 document.getElementById("right").onclick=()=>lane=Math.min(2,lane+1);
-document.getElementById("pause").onclick=()=>state=state==="run"?"pause":"run";
+document.getElementById("pause").onclick=()=>{
+  if(state==="run"){
+    state="pause";
+    overlay.style.display="flex";
+    title.textContent="Paused";
+    text.textContent="Tap pause or Space to resume";
+  }else if(state==="pause"){
+    state="run";
+    overlay.style.display="none";
+  }
+};
 document.getElementById("sound").onclick=()=>soundOn=!soundOn;
+
+canvas.addEventListener("pointerdown",e=>{
+  const x=e.offsetX;
+  lane += x<canvas.width/2?-1:1;
+  lane=Math.max(0,Math.min(2,lane));
+});
 
 window.addEventListener("keydown",e=>{
   if(e.code==="ArrowLeft") lane=Math.max(0,lane-1);
   if(e.code==="ArrowRight") lane=Math.min(2,lane+1);
   if(e.code==="Space"){
     if(state==="start"||state==="over") start();
+    else if(state==="pause"){ state="run"; overlay.style.display="none"; }
   }
 });
 
-document.addEventListener("visibilitychange",()=>{
-  if(document.hidden && state==="run") state="pause";
-});
-
+requestAnimationFrame(loop);
 })();
 </script>
 
 </body>
-</html>
+  </html>
